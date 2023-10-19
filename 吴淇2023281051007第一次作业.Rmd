@@ -1,0 +1,399 @@
+---
+title: "第一次作业：基于武汉链家的数据分析报告"
+author:
+  - 吴淇
+date: "`r Sys.Date()`"
+documentclass: ctexart
+keywords:
+  - 中文
+  - R Markdown
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+header-includes:
+  - "\\usepackage{fancyhdr}"  # 加载 fancyhdr 包以自定义页眉和页脚
+  - "\\pagestyle{fancy}"     # 使用 fancy 页面样式
+  - "\\fancyhead{}"          # 清空页眉
+  - "\\renewcommand{\\headrulewidth}{0pt}"  # 去除页眉下的横线
+  - "\\fancyfoot[C]{\\thepage}"  # 页脚中间放置页码
+  
+---
+```{r setup, include = FALSE,echo = FALSE}
+knitr::opts_chunk$set(echo = FALSE,error = FALSE, warning = FALSE, message = FALSE)
+#install.packages("esquisse","GGally")
+#install.packages("lm.beta")
+#install.packages("showtext")
+
+#load library
+library(esquisse)
+library(tidyverse)
+library(lubridate)
+library(scales)
+library(plotly)
+library(patchwork)
+library(ggrepel)
+library(dplyr)
+library(GGally)
+library(lm.beta)
+library(showtext)
+showtext_auto(enable = TRUE)
+```
+
+\newpage
+# 主要发现
+
+发现1：
+
+在装修的不同等级中，精装修对房屋单价的影响最为显著。而与简装的平均单价相比，精装的平均单价增加了2084.4元/平米，毛坯、简装和其他情况之间房屋平均单价差异不大。
+
+发现2：
+
+房屋建筑面积和房屋单价存在正相关关系。根据线性回归模型，每增加一个单位的建筑面积，房屋单价预期会上涨33.272元。       
+
+发现3：
+
+房屋的楼栋高度与房屋单价存在正相关关系。并且在预测房屋单价方面，可能是一个比建筑面积更显著的因素。
+
+发现4：
+
+装修情况同样是影响房屋关注度的最显著因素之一，装修等级越高，关注人数也越多。
+
+
+
+
+
+# 数据介绍
+
+本报告**链家**数据获取方式如下：
+    
+报告人在2023年9月12日获取了[链家武汉二手房网站](https://wh.lianjia.com/ershoufang/)数据。
+    
+- 链家二手房网站默认显示100页，每页30套房产，因此本数据包括3000套房产信息；
+  
+- 数据包括了页面可见部分的文本信息，具体字段及说明见作业说明。
+
+ **说明：**数据仅用于教学；由于不清楚链家数据的展示规则，因此数据可能并不是武汉二手房市场的随机抽样，结论很可能有很大的偏差，甚至可能是错误的。
+
+```{r}
+# 载入数据和预处理
+lj<- read_csv("F:/data/2023-09-12_cleaned.csv")
+
+# 将所有列转化为因子变量
+lj_data <- lj %>%
+  mutate(across(everything(), as.factor))
+# 选取部分
+lj_1 <- lj %>%
+  select(price_sqm, price_ttl, building_area,property_t_height,livingrooms,decoration,followers)
+
+lj_2 <- lj %>%
+  select(price_sqm, price_ttl, building_area,property_t_height,livingrooms,decoration,followers,property_style,
+         near_subway)
+
+
+```
+
+# 数据概览
+数据表（lj)共包括`r names(lj)`等`r ncol(lj)`个变量,共`r nrow(lj)`行。表的前10行示例如下：
+
+```{r}
+lj%>%head(10)
+```
+
+
+各变量的简短信息：
+```{r}
+glimpse(lj)
+```
+
+各变量的简短统计：
+```{r}
+summary(lj)
+```
+
+可以得出直观结论：
+
+（一）房屋总价 (price_ttl)
+
+1.最低价为10.6万元，最高价为1380万元，中位数为137万元。
+
+ 2.平均价为155.9万元。
+
+
+
+（二）房屋单价 (price_sqm)
+
+ 1.最低单价为1771元/平方米，最高单价为44656元/平方米。
+
+ 2.大部分房子的单价集中在10799元/平方米到18211元/平方米之间，其中中位数为14404元/平方米。
+
+ 3.平均单价为15148元/平方米。
+\newpage
+（三）房间数量 (bedrooms)
+
+1.大部分房子有2至3个卧室。
+
+2.中位数为3，意味着大多数房屋都是三室的。
+
+
+
+（四）客厅数量 (livingrooms)
+
+1.大部分房子有1至2个客厅。
+
+2.中位数为2，表示大多数房屋都是二厅的。
+
+
+
+（五）建筑面积 (building_area)
+
+1.房子的建筑面积范围从22.77平方米到588.66平方米。
+
+2.中位数面积为95.55平方米，表示大部分房子的面积接近这个数值。
+
+
+
+（六）楼栋总层数 (property_t_height)
+
+  1.最小的楼栋只有2层，而最高的有62层。
+
+  2.大部分楼栋的楼层数集中在11层到33层之间。
+
+\newpage
+# 探索性分析
+
+## 房屋单价的数值描述与图形
+
+房屋单价的数值描述：
+
+```{r}
+summary(lj$price_sqm)
+```
+
+
+房屋单价的分布情况：
+
+```{r}
+#房屋单价的分布情况
+ggplot(lj, aes(x = price_sqm)) +
+  geom_histogram(aes(y = ..density..), binwidth = 500, fill = "#0072B2", color = "#FFFFFF", alpha = 0.8) +
+  geom_density(color = "red") +
+  theme_minimal()
+
+```
+
+​        发现：房屋单价呈现为右偏正态分布的情形,异常值似乎对均值影响不大。
+
+
+
+
+\newpage
+## 房屋总价的数值描述与图形
+
+房屋总价的描述性分析：
+```{r}
+summary(lj$building_area)
+```
+房屋总价的分布情况
+```{r}
+ggplot(lj, aes(x = price_ttl)) +
+  geom_histogram(aes(y = ..density..), binwidth = 10,
+                 fill = "#0072B2", color = "#FFFFFF", alpha = 0.8) +
+  geom_density(color = "red") +
+  labs(
+    title = "房屋总价的分布情况",
+    x = "总价 (万元)",
+    y = "密度"
+  ) +
+  theme_minimal()
+```
+
+- 发现：
+
+  1.房价的分布是右偏的，且较房屋单价更为集中。有一些高价的房子拉高了平均价。
+  
+  2.大部分房子的价格集中在在95万元到188万元之间。
+
+\newpage
+## 房屋建筑面积的数值描述与图形
+
+房屋建筑面积的描述性统计
+```{r}
+summary(lj$building_area)
+```
+房屋建筑面积的分布情况：
+
+```{r}
+ggplot(lj_1) +
+ aes(x = building_area) +
+ geom_histogram(aes(y = ..density..),bins = 150, fill = "#0072B2",color = "white",alpha = 0.8) +
+  geom_density(color = "red")+
+ theme_minimal()
+```
+
+  发现：
+
+  1.房屋建筑面积大部分集中在84.92平方米到117.68平方米之间。
+
+  2.相较于房屋单价和总价，房屋建筑面积右偏更显著。
+\newpage
+
+## 楼栋总层数的数值描述与图形
+楼栋总层数的计数和分布：
+
+```{r}
+
+ggplot(lj_1) +
+ aes(x = property_t_height) +
+ geom_histogram(bins = 50L, fill = "#1C3B73",color = "white" )+
+ theme_minimal()
+
+```
+```{r}
+
+ggplot(lj_1) +
+ aes(x = property_t_height) +
+ geom_histogram(aes(y = ..density..),bins = 150, fill = "#0072B2",color = "white",alpha = 0.8) +
+  geom_density(color = "red")+
+ theme_minimal()
+```
+ \newpage 
+  发现：
+
+  1.大部分楼层集中在11-33层之间，并且在几个特殊楼层数时概率密度显著增高。
+
+  2.楼层数呈现出左偏的情形，这和前几个右偏的数据存在明显区别。
+
+  3.究其原因或许是因为建筑水平和政策方面的考量对高于某一特定层数的建筑有不同的限制和要求。
+
+\newpage
+## 探索问题1：装修对房屋单价有何影响？
+
+```{r}
+ggplot(lj_1) +
+ aes(x = decoration, y = price_sqm, fill = price_ttl) +
+ geom_boxplot() +
+ scale_fill_gradient() +
+ theme_minimal()
+```
+
+
+通过lm()函数创建线性模型，查看装修decoration是如何影响单价price_sqm的：
+```{r}
+model_1 <- lm(price_sqm ~ decoration, data = lj)
+summary(model_1 )
+```
+
+- 发现：
+
+与简装的平均单价(Intercept)相比，精装的平均单价增加了2084.4元/平米。这一结果是显著的（Pr(>|t|)列，其值远小于0.05）。而其他装修类型与简装相比在价格上的差异不显著。但需要注意模型只解释了房屋单价price_sqm的3.103%的变异，这意味着还有其他很多因素影响price_sqm。
+
+ \newpage 
+ 
+## 探索问题2：房屋建筑面积和单价之间存在怎样的关系？
+
+```{r}
+
+library(ggplot2)
+
+ggplot(lj_1) +
+ aes(x = building_area, y = price_sqm, colour = price_sqm) +
+ geom_point(shape = "circle", 
+ size = 1.5) +
+ scale_color_gradient(name = "price_sqm",low = "blue", high = "red") +
+ theme_minimal()
+
+```
+
+
+
+```{r}
+model_2 <- lm(building_area~price_sqm, data = lj)
+summary(model_2 )
+```
+
+-发现：
+
+模型结果显示，price_sqm与building_area有正向关系，并且这种关系是统计显著的。
+但Multiple R-squared值为0.02555，这意味着线性模型仅解释了2.555%的building_area的变化。这意味着还有其他未考虑的因素也可能影响building_area。
+
+ \newpage 
+ 
+## 探索问题3：楼栋总层数和房屋单价之间是否存在关联？
+
+```{r, fig.width=10,fig.height=7}
+
+ggplot(lj, aes(x = property_t_height, y = price_sqm)) + 
+  geom_point(aes(color = property_t_height), alpha = 0.6) + 
+  geom_smooth(loess = "lm", se = TRUE, color = "green") +  # 添加拟合线
+  labs(
+    title = "武汉楼市中楼栋总层数 vs 房屋单价",
+    x = "楼栋总层数",
+    y = "房屋单价格 (元/平方米)"
+  ) +
+  theme_minimal() + 
+  scale_color_gradient(low="blue", high="red")
+
+```
+
+
+
+通过一个简单的线性回归模型，基于property_t_height（楼栋总层数）来预测price_sqm（每平方米的房屋单价）。
+
+```{r}
+model_3 <- lm(price_sqm~property_t_height, data = lj)
+summary(model_3) 
+```
+
+- 发现：
+
+从这个模型可以看出，房屋的楼栋高度与每平方米的价格有正相关关系。模型解释了数据中的 5.257% 变异，比之前的模型（基于building_area）解释的变异要高。这意味着物业的高度可能是一个比建筑面积更重要的因素来预测每平方米的价格。但5.257%仍然只是一个很小的比例，还存在着其它诸多影响因素。
+
+
+ \newpage 
+ 
+## 探索问题4：影响房屋受欢迎程度最重要的因素是什么？
+
+对于二手房而言，房型的受欢迎程度将在很大程度上影响房屋的保值率和流通性，因此具有一定研究意义和选购时的参考价值。所以我们以关注度为受欢迎程度的衡量标准，基于链家的3000条数据，分析其相关性，并筛选出其中相关度最靠前的几个指标。
+
+
+```{r}
+model <- lm(followers ~ ., data = lj_2)
+model_beta <- lm.beta(model)
+summary(model_beta)
+```
+
+从表中我们可以发现：
+影响关注人数的最显著的三个变量依次为：decoration、price_ttl房屋总价、 建筑形式property_style。
+
+接下来对装修和房屋关注人数之间的关系做进一步分析：
+
+```{r}
+
+library(ggplot2)
+
+ggplot(lj_1) +
+ aes(x = decoration, weight = followers) +
+ geom_bar(fill = "#112446") +
+ theme_minimal()
+
+```
+
+发现：装修等级越高，受关注程度也越高，其中精装修的房屋关注人数远高于毛坯或简装。
+
+
+
+
+
+---
+
+# 发现总结
+
+1.在装修的不同等级中，精装修对房屋单价的影响最为显著。而与简装的平均单价相比，精装的平均单价增加了2084.4元/平米，毛坯、简装和其他情况之间房屋平均单价差异不大。
+
+2.房屋建筑面积和房屋单价存在正相关关系。根据线性回归模型，每增加一个单位的建筑面积，房屋单价预期会上涨33.272元。
+
+3.房屋的楼栋高度与房屋单价存在正相关关系。并且在预测房屋单价方面，可能是一个比建筑面积更显著的因素。
+
+4.装修情况同样是影响房屋关注度的最显著因素之一，装修等级越高，关注人数也越多。
